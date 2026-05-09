@@ -1,0 +1,174 @@
+from flask import Flask, render_template, request, redirect, session
+from flask_socketio import SocketIO, emit
+import json
+import os
+
+app = Flask(__name__)
+
+app.secret_key = "secretkey"
+
+socketio = SocketIO(
+    app,
+    cors_allowed_origins="*"
+)
+
+# =========================
+# CREATE FILES
+# =========================
+if not os.path.exists("accounts.json"):
+
+    with open("accounts.json", "w") as f:
+        json.dump({}, f)
+
+if not os.path.exists("messages.json"):
+
+    with open("messages.json", "w") as f:
+        json.dump([], f)
+
+# =========================
+# LOAD ACCOUNT
+# =========================
+def load_accounts():
+
+    with open("accounts.json", "r") as f:
+        return json.load(f)
+
+# =========================
+# SAVE ACCOUNT
+# =========================
+def save_accounts(data):
+
+    with open("accounts.json", "w") as f:
+        json.dump(data, f, indent=4)
+
+# =========================
+# LOAD MESSAGE
+# =========================
+def load_messages():
+
+    with open("messages.json", "r") as f:
+        return json.load(f)
+
+# =========================
+# SAVE MESSAGE
+# =========================
+def save_message(msg):
+
+    data = load_messages()
+
+    data.append(msg)
+
+    with open("messages.json", "w") as f:
+        json.dump(data, f, indent=4)
+
+# =========================
+# ONLINE USERS
+# =========================
+online_users = []
+
+# =========================
+# LOGIN PAGE
+# =========================
+@app.route("/", methods=["GET", "POST"])
+def login():
+
+    if request.method == "POST":
+
+        username = request.form["username"]
+        password = request.form["password"]
+
+        data = load_accounts()
+
+        # LOGIN
+        if username in data:
+
+            if data[username] == password:
+
+                session["user"] = username
+
+                return redirect("/chat")
+
+            else:
+
+                return "Sai mật khẩu"
+
+        # REGISTER
+        else:
+
+            data[username] = password
+
+            save_accounts(data)
+
+            session["user"] = username
+
+            return redirect("/chat")
+
+    return render_template("index.html")
+
+# =========================
+# CHAT PAGE
+# =========================
+@app.route("/chat")
+def chat():
+
+    if "user" not in session:
+
+        return redirect("/")
+
+    return render_template(
+        "chat.html",
+        username=session["user"],
+        messages=load_messages()
+    )
+
+# =========================
+# LOGOUT
+# =========================
+@app.route("/logout")
+def logout():
+
+    session.clear()
+
+    return redirect("/")
+
+# =========================
+# JOIN
+# =========================
+@socketio.on("join")
+def join(username):
+
+    if username not in online_users:
+
+        online_users.append(username)
+
+    emit(
+        "online_users",
+        online_users,
+        broadcast=True
+    )
+
+# =========================
+# MESSAGE
+# =========================
+@socketio.on("send_message")
+def handle_message(data):
+
+    save_message(data)
+
+    emit(
+        "receive_message",
+        data,
+        broadcast=True
+    )
+
+# =========================
+# RUN
+# =========================
+if __name__ == "__main__":
+
+    socketio.run(
+        app,
+        host="0.0.0.0",
+        port=5000,
+        debug=True
+    )
